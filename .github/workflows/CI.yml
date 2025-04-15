@@ -190,6 +190,51 @@ jobs:
           name: dist-${{ github.job }}-${{ matrix.target }}
           path: dist
 
+  windows-arm:
+    needs: test
+    runs-on: windows-11-arm
+
+    strategy:
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # This builder doesn't have rustc installed by default yet
+      # https://github.com/actions/partner-runner-images/issues/77
+      - name: Install rustup (Windows 11 ARM64)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://static.rust-lang.org/rustup/dist/aarch64-pc-windows-msvc/rustup-init.exe" -OutFile rustup-init.exe
+          .\rustup-init.exe --default-toolchain none -y
+          "$env:USERPROFILE\.cargo\bin" | Out-File -Append -Encoding ascii $env:GITHUB_PATH
+          "CARGO_HOME=$env:USERPROFILE\.cargo" | Out-File -Append -Encoding ascii $env:GITHUB_ENV
+      - name: Install Rust (Windows 11 ARM64)
+        shell: pwsh
+        run: |
+          rustup install stable
+          rustup target add aarch64-pc-windows-msvc
+      - uses: actions/setup-python@v5
+        with:
+          python-version: |
+            3.11
+            3.12
+            3.13
+          allow-prereleases: true
+          architecture: arm64
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64
+          args: --release --out dist --interpreter '3.11 3.12 3.13'
+          sccache: ${{ github.ref_type != 'tag' }} # zizmor: ignore[cache-poisoning]
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ github.job }}-arm64
+          path: dist
+
   # free-threaded and normal builds share a site-packages folder on Windows so
   # we must build free-threaded separately
   windows-free-threaded:
@@ -282,7 +327,7 @@ jobs:
           path: dist
 
   release:
-    needs: [manylinux, musllinux, windows, windows-free-threaded, macos]
+    needs: [manylinux, musllinux, windows, windows-arm, windows-free-threaded, macos]
     runs-on: ubuntu-latest
     if: "startsWith(github.ref, 'refs/tags/')"
     environment:
